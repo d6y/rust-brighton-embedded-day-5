@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-extern crate panic_halt;
+extern crate panic_semihosting;
 
 use stm32f4xx_hal as hal;
 use ws2812_spi as ws2812;
@@ -20,7 +20,8 @@ use cortex_m_semihosting::hprintln;
 use rtfm::cyccnt::U32Ext;
 
 const PERIOD: u32 = 48_000_000;
-const NUM_LEDS: usize = 4;
+const NUM_LEDS: usize = 1;
+const MAX_LEDS: usize = 50;
 
 // Types for WS
 use hal::gpio::gpiob::{PB3, PB5};
@@ -34,10 +35,10 @@ type Pins = (PB3<Alternate<AF5>>, NoMiso, PB5<Alternate<AF5>>);
 const APP: () = {
     struct Resources {
         ws: Ws2812<Spi<SPI1, Pins>>,
-        itm: cortex_m::peripheral::ITM,
+        data: [RGB8 ; MAX_LEDS],
     }
 
-    #[init(schedule = [lights_on])]
+    #[init(schedule = [walk])]
     fn init(mut cx: init::Context) -> init::LateResources {
         // Device specific peripherals
         let dp: stm32::Peripherals = cx.device;
@@ -72,52 +73,55 @@ const APP: () = {
             clocks,
         );
 
-        let ws = Ws2812::new(spi);
+        let mut ws = Ws2812::new(spi);
 
-        cx.schedule
-            .lights_on(cx.start + PERIOD.cycles())
-            .expect("failed schedule initial lights on");
+        let c = 0xfe;
 
-        init::LateResources { ws, itm }
-    }
+        let red = RGB8 { r: c, g:0, b:0 };
+        let green = RGB8 { r: 0, g:c, b:0 };
+        let blue = RGB8 { r: 0, g:0, b:c };
 
-    #[task(schedule = [lights_off], resources = [ws, itm])]
-    fn lights_on(cx: lights_on::Context) {
-        let lights_on::Resources { ws, itm } = cx.resources;
-        let port = &mut itm.stim[0];
+        let mut data = [RGB8::default(); MAX_LEDS];
 
-        iprintln!(port, "ON");
-
-        let blue = RGB8 {
-            b: 0xa0,
-            g: 0,
-            r: 0,
-        };
-        let data = [blue; NUM_LEDS];
+        for i in 0..16 {
+            let idx = i * 3;
+            data[idx] = red;
+            data[idx+1] = green;
+            data[idx+2] = blue;
+        }
 
         ws.write(data.iter().cloned())
             .expect("Failed to write lights_on");
 
         cx.schedule
-            .lights_off(cx.scheduled + PERIOD.cycles())
-            .expect("Failed to schedule lights_off");
+            .walk(cx.start + PERIOD.cycles())
+            .expect("failed schedule initial walk");
+
+        init::LateResources { ws, data }
     }
 
-    #[task(schedule = [lights_on], resources = [ws, itm])]
-    fn lights_off(cx: lights_off::Context) {
-        let lights_off::Resources { ws, itm } = cx.resources;
-        let port = &mut itm.stim[0];
+    #[task(schedule = [walk], resources = [ws, data])]
+    fn walk(cx: walk::Context) {
+        let walk::Resources { ws, data } = cx.resources;
 
-        hprintln!("OFF").unwrap();
-        iprintln!(port, "OFF");
+        let decr = |v| if v == 0 { 0 } else { v-1 };
 
-        let empty = [RGB8::default(); NUM_LEDS];
-        ws.write(empty.iter().cloned())
-            .expect("Failed to write lights_off");
+        for i in 0..MAX_LEDS {
+            let colour = RGB8 {
+                r: decr(data[i].r),
+                g: decr(data[i].g),
+                b: decr(data[i].b),
+            };
+
+            data[i] = colour;
+        }
+
+        ws.write(data.iter().cloned())
+            .expect("Failed to write walk");
 
         cx.schedule
-            .lights_on(cx.scheduled + PERIOD.cycles())
-            .expect("Failed to schedule lights_on");
+            .walk(cx.scheduled + PERIOD.cycles())
+            .expect("Failed to schedule walk");
     }
 
     extern "C" {
