@@ -15,8 +15,9 @@ cortex-m-rtfm = "0.5.1"
 
 smart-leds-trait = {version = "0.2.0"}
 smart-leds = {version = "0.3.0"}
-ws2812-spi = {version = "0.2.0" }
-ws2812-timer-delay = {version = "0.2.0"}
+ws2811-spi = { git = "https://github.com/BrightonRust/ws2811-spi-rs", branch = "master" }
+# or, for local hacking...
+# ws2811-spi = { path = "../ws2811-spi-rs" } 
 
 # this lets you use `cargo fix`!
 [[bin]]

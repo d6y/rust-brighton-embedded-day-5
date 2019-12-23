@@ -1,5 +1,7 @@
-# Rust Brighton week 5
+# LEDs that randomly walk around their initial value
 
 - Plug in the hardware
 - Launch `openocd`
-- `cargo run`
+- `cargo run --release`
+
+

@@ -4,23 +4,21 @@
 extern crate panic_semihosting;
 
 use stm32f4xx_hal as hal;
-use ws2812_spi as ws2812;
+use ws2811_spi as ws2811;
 
 use hal::spi::*;
 use hal::{prelude::*, stm32};
 
-use ws2812::Ws2812;
+use ws2811::Ws2811;
 
 use smart_leds::SmartLedsWrite;
 use smart_leds_trait::RGB8;
 
-use cortex_m::iprintln;
-use cortex_m_semihosting::hprintln;
+// use cortex_m_semihosting::hprintln;
 
 use rtfm::cyccnt::U32Ext;
 
-const PERIOD: u32 = 48_000_000;
-const NUM_LEDS: usize = 1;
+const PERIOD: u32 = 48_000_000 / 2;
 const MAX_LEDS: usize = 50;
 
 // Types for WS
@@ -34,8 +32,8 @@ type Pins = (PB3<Alternate<AF5>>, NoMiso, PB5<Alternate<AF5>>);
 #[rtfm::app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtfm::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
-        ws: Ws2812<Spi<SPI1, Pins>>,
-        data: [RGB8 ; MAX_LEDS],
+        ws: Ws2811<Spi<SPI1, Pins>>,
+        data: [RGB8; MAX_LEDS],
     }
 
     #[init(schedule = [walk])]
@@ -50,9 +48,6 @@ const APP: () = {
         // Initialize (enable) the monotonic timer (CYCCNT)
         cx.core.DCB.enable_trace();
         cx.core.DWT.enable_cycle_counter();
-
-        // ITM for debugging output
-        let itm = cx.core.ITM;
 
         // Configure pins for SPI
         // We don't connect sck, but I think the SPI traits require it?
@@ -73,21 +68,18 @@ const APP: () = {
             clocks,
         );
 
-        let mut ws = Ws2812::new(spi);
+        let mut ws = Ws2811::new(spi);
 
-        let c = 0xfe;
+        let brightness = 128;
+        let red = RGB8 { r: brightness, g: 0, b: 0 };
+        let green = RGB8 { r: 0, g: brightness, b: 0 };
+        let blue = RGB8 { r: 0, g: 0, b: brightness };
 
-        let red = RGB8 { r: c, g:0, b:0 };
-        let green = RGB8 { r: 0, g:c, b:0 };
-        let blue = RGB8 { r: 0, g:0, b:c };
+        let pattern = [red, green, blue];
 
         let mut data = [RGB8::default(); MAX_LEDS];
-
-        for i in 0..16 {
-            let idx = i * 3;
-            data[idx] = red;
-            data[idx+1] = green;
-            data[idx+2] = blue;
+        for (i, colour) in pattern.iter().cycle().take(MAX_LEDS).enumerate() {
+            data[i] = *colour;
         }
 
         ws.write(data.iter().cloned())
@@ -104,7 +96,7 @@ const APP: () = {
     fn walk(cx: walk::Context) {
         let walk::Resources { ws, data } = cx.resources;
 
-        let decr = |v| if v == 0 { 0 } else { v-1 };
+        let decr = |v| if v == 0 { 0 } else { v - 1 };
 
         for i in 0..MAX_LEDS {
             let colour = RGB8 {
@@ -116,8 +108,7 @@ const APP: () = {
             data[i] = colour;
         }
 
-        ws.write(data.iter().cloned())
-            .expect("Failed to write walk");
+        ws.write(data.iter().cloned()).expect("write in walk");
 
         cx.schedule
             .walk(cx.scheduled + PERIOD.cycles())
